@@ -1,0 +1,165 @@
+name: Android Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Release track'
+        required: true
+        default: 'internal'
+        type: choice
+        options:
+        - internal
+        - alpha
+        - beta
+        - production
+      rollout_percentage:
+        description: 'Rollout percentage (beta/production only)'
+        required: false
+        default: '10'
+        type: string
+
+  push:
+    tags:
+      - 'v*-android'
+
+env:
+  FLUTTER_VERSION: '3.22.x'
+  JAVA_VERSION: '17'
+
+jobs:
+  deploy_android:
+    name: Deploy Android App
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.track || 'internal' }}
+    defaults:
+      run:
+        working-directory: ./nutriplan_app
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: Setup Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'zulu'
+        java-version: ${{ env.JAVA_VERSION }}
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      
+    - name: Decode keystore
+      run: |
+        echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/upload-keystore.jks
+        
+    - name: Create key.properties
+      run: |
+        echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" > android/key.properties
+        echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> android/key.properties
+        echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> android/key.properties
+        echo "storeFile=upload-keystore.jks" >> android/key.properties
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Generate code
+      run: flutter packages pub run build_runner build --delete-conflicting-outputs
+      
+    - name: Build Android App Bundle
+      run: |
+        flutter build appbundle \
+          --release \
+          --build-number=${{ github.run_number }} \
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+          --dart-define=GOOGLE_SIGN_IN_CLIENT_ID=${{ secrets.GOOGLE_SIGN_IN_CLIENT_ID }}
+          
+    - name: Build Android APK (for testing)
+      run: |
+        flutter build apk \
+          --release \
+          --build-number=${{ github.run_number }} \
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+          --dart-define=GOOGLE_SIGN_IN_CLIENT_ID=${{ secrets.GOOGLE_SIGN_IN_CLIENT_ID }}
+          
+    - name: Sign APK
+      uses: r0adkll/sign-android-release@v1
+      with:
+        releaseDirectory: nutriplan_app/build/app/outputs/flutter-apk
+        signingKeyBase64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        keyPassword: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        
+    - name: Upload to Play Console
+      uses: r0adkll/upload-google-play@v1
+      with:
+        serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+        packageName: com.nutriplan.app
+        releaseFiles: nutriplan_app/build/app/outputs/bundle/release/app-release.aab
+        track: ${{ inputs.track || 'internal' }}
+        status: completed
+        userFraction: ${{ inputs.rollout_percentage && inputs.rollout_percentage != '' && (inputs.track == 'beta' || inputs.track == 'production') && (inputs.rollout_percentage | tonumber / 100) || null }}
+        
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: android-apk-${{ github.sha }}
+        path: nutriplan_app/build/app/outputs/flutter-apk/app-release.apk
+        
+    - name: Upload AAB artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: android-aab-${{ github.sha }}
+        path: nutriplan_app/build/app/outputs/bundle/release/app-release.aab
+        
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          nutriplan_app/build/app/outputs/flutter-apk/app-release.apk
+          nutriplan_app/build/app/outputs/bundle/release/app-release.aab
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+        
+    - name: Notify deployment status
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#android-deployments'
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+
+  post_deployment_tests:
+    name: Post-Deployment Tests
+    runs-on: ubuntu-latest
+    needs: deploy_android
+    if: success()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Run Firebase Test Lab
+      uses: asadmansr/Firebase-Test-Lab-Action@v1.0
+      with:
+        arg-spec: 'android/test-spec.yml:android-test'
+      env:
+        SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: firebase-test-results
+        path: test-results/

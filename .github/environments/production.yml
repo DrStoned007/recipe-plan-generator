@@ -1,0 +1,167 @@
+# Production Environment Configuration
+# This file defines environment-specific variables for the production environment
+
+name: production
+url: https://nutriplan.app
+
+# Environment Variables
+variables:
+  ENVIRONMENT: production
+  API_BASE_URL: https://api.nutriplan.app
+  LOG_LEVEL: error
+  ENABLE_DEBUG_MODE: false
+  ENABLE_ANALYTICS: true
+  ENABLE_CRASH_REPORTING: true
+  ENABLE_PERFORMANCE_MONITORING: true
+  
+  # Feature Flags for Production
+  ENABLE_BETA_FEATURES: false
+  ENABLE_EXPERIMENTAL_UI: false
+  ENABLE_OFFLINE_MODE: true
+  
+  # Deployment Configuration
+  USE_VERCEL: true
+  USE_NETLIFY: false
+  USE_CLOUDFLARE: true
+  
+  # Security
+  ENABLE_CERTIFICATE_PINNING: true
+  ENABLE_BIOMETRIC_AUTH: true
+  
+  # Monitoring
+  ENABLE_EXTERNAL_METRICS: true
+  ENABLE_FOSSA: true
+  ENABLE_DOCKER: false
+
+# Required Secrets (must be set in GitHub repository settings)
+required_secrets:
+  # Supabase
+  - SUPABASE_URL
+  - SUPABASE_ANON_KEY
+  
+  # Authentication
+  - GOOGLE_SIGN_IN_WEB_CLIENT_ID
+  - GOOGLE_SIGN_IN_ANDROID_CLIENT_ID
+  - GOOGLE_SIGN_IN_IOS_CLIENT_ID
+  - APPLE_SIGN_IN_SERVICE_ID
+  - APPLE_SIGN_IN_TEAM_ID
+  - APPLE_SIGN_IN_KEY_ID
+  
+  # Android Deployment
+  - ANDROID_KEYSTORE_BASE64
+  - ANDROID_KEYSTORE_PASSWORD
+  - ANDROID_KEY_PASSWORD
+  - ANDROID_KEY_ALIAS
+  - GOOGLE_PLAY_SERVICE_ACCOUNT_JSON
+  
+  # iOS Deployment
+  - IOS_DISTRIBUTION_CERTIFICATE_BASE64
+  - IOS_DISTRIBUTION_CERTIFICATE_PASSWORD
+  - APP_STORE_CONNECT_ISSUER_ID
+  - APP_STORE_CONNECT_KEY_ID
+  - APP_STORE_CONNECT_PRIVATE_KEY
+  
+  # Web Deployment
+  - VERCEL_TOKEN
+  - VERCEL_ORG_ID
+  - VERCEL_PROJECT_ID
+  - CLOUDFLARE_API_TOKEN
+  - CLOUDFLARE_ACCOUNT_ID
+  
+  # Desktop Deployment
+  - MACOS_CERTIFICATE_NAME
+  - SNAPCRAFT_STORE_CREDENTIALS
+  
+  # Monitoring & Security
+  - SENTRY_DSN
+  - SENTRY_AUTH_TOKEN
+  - SLACK_WEBHOOK
+  - SLACK_WEBHOOK_ALERTS
+  - FIREBASE_SERVICE_ACCOUNT
+  - WEBPAGETEST_API_KEY
+  - LHCI_GITHUB_APP_TOKEN
+  - FOSSA_API_KEY
+  - SEMGREP_APP_TOKEN
+  - GITLEAKS_LICENSE
+
+# Protection Rules
+protection_rules:
+  required_reviewers: 2
+  required_status_checks:
+    - "Code Quality Analysis"
+    - "Test Suite (ubuntu-latest, 3.22.x)"
+    - "Test Suite (macos-latest, 3.22.x)"
+    - "Test Suite (windows-latest, 3.22.x)"
+    - "Security Analysis"
+    - "SAST Analysis"
+    - "Dependency Vulnerability Scan"
+    - "Secret Detection"
+    - "License Compliance"
+    - "Mobile Security Analysis"
+  restrict_pushes: true
+  allow_force_pushes: false
+  allow_deletions: false
+  require_linear_history: true
+  dismiss_stale_reviews: true
+
+# Deployment Strategy
+deployment:
+  strategy: "blue-green"
+  auto_deploy: false  # Require manual approval for production
+  rollback_on_failure: true
+  max_deployment_time: "30m"
+  requires_approval: true
+  approval_timeout: "24h"
+  
+  # Staged Rollout
+  staged_rollout:
+    enabled: true
+    stages:
+      - percentage: 10
+        duration: "1h"
+      - percentage: 50
+        duration: "4h"
+      - percentage: 100
+  
+# Health Checks
+health_checks:
+  enabled: true
+  endpoints:
+    - path: "/"
+      expected_status: 200
+      timeout: 30s
+    - path: "/health"
+      expected_status: 200
+      timeout: 10s
+    - path: "/api/health"
+      expected_status: 200
+      timeout: 10s
+  frequency: "2m"
+  failure_threshold: 2
+  
+# Performance Requirements
+performance_requirements:
+  lighthouse:
+    performance_threshold: 90
+    accessibility_threshold: 95
+    best_practices_threshold: 90
+    seo_threshold: 95
+  core_web_vitals:
+    lcp_threshold: 2500  # Largest Contentful Paint (ms)
+    fid_threshold: 100   # First Input Delay (ms)
+    cls_threshold: 0.1   # Cumulative Layout Shift
+  
+# Security Requirements
+security_requirements:
+  vulnerability_scan: required
+  secret_detection: required
+  license_compliance: required
+  code_signing: required
+  ssl_grade: "A+"
+  
+# Compliance
+compliance:
+  gdpr: required
+  wcag: "AA"
+  data_retention: "2y"
+  backup_frequency: "daily"

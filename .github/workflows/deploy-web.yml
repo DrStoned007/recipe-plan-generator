@@ -1,0 +1,230 @@
+name: Web Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      enable_pwa:
+        description: 'Enable PWA features'
+        required: false
+        default: true
+        type: boolean
+
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*-web'
+
+env:
+  FLUTTER_VERSION: '3.22.x'
+  NODE_VERSION: '20'
+
+jobs:
+  deploy_web:
+    name: Deploy Web App
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
+    defaults:
+      run:
+        working-directory: ./nutriplan_app
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Generate code
+      run: flutter packages pub run build_runner build --delete-conflicting-outputs
+      
+    - name: Configure web build
+      run: |
+        flutter config --enable-web
+        
+    - name: Build web application
+      run: |
+        flutter build web \
+          --release \
+          --web-renderer canvaskit \
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
+          --dart-define=GOOGLE_SIGN_IN_CLIENT_ID=${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID }} \
+          --source-maps
+          
+    - name: Optimize web build
+      run: |
+        # Compress assets
+        find build/web -name "*.js" -exec gzip -k {} \;
+        find build/web -name "*.css" -exec gzip -k {} \;
+        find build/web -name "*.html" -exec gzip -k {} \;
+        
+        # Optimize images
+        npm install -g imagemin-cli imagemin-webp
+        imagemin "build/web/assets/**/*.{jpg,jpeg,png}" --out-dir=build/web/assets --plugin=webp
+        
+    - name: Configure PWA
+      if: inputs.enable_pwa != false
+      run: |
+        # Generate service worker and manifest
+        echo "Configuring PWA features..."
+        
+    - name: Run Lighthouse CI
+      uses: treosh/lighthouse-ci-action@v9
+      with:
+        configPath: './nutriplan_app/.lighthouserc.json'
+        uploadDir: './nutriplan_app/build/web'
+        temporaryPublicStorage: true
+        
+    - name: Deploy to Vercel (Production)
+      if: github.ref == 'refs/heads/main' || inputs.environment == 'production'
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        working-directory: ./nutriplan_app/build/web
+        vercel-args: '--prod'
+        
+    - name: Deploy to Vercel (Staging)
+      if: github.ref == 'refs/heads/develop' || inputs.environment == 'staging'
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        working-directory: ./nutriplan_app/build/web
+        
+    - name: Deploy to Netlify (Alternative)
+      if: ${{ vars.USE_NETLIFY == 'true' }}
+      uses: netlify/actions/deploy@master
+      with:
+        publish-dir: './nutriplan_app/build/web'
+        production-branch: main
+        production-deploy: ${{ github.ref == 'refs/heads/main' }}
+      env:
+        NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        
+    - name: Configure CDN (Cloudflare)
+      if: ${{ vars.USE_CLOUDFLARE == 'true' }}
+      run: |
+        npx wrangler pages deploy ./build/web \
+          --project-name=nutriplan-web \
+          --env=${{ inputs.environment || (github.ref == 'refs/heads/main' && 'production' || 'staging') }}
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        
+    - name: Upload web build artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: web-build-${{ github.sha }}
+        path: nutriplan_app/build/web/
+        retention-days: 30
+        
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: nutriplan_app/build/web.zip
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+
+  web_performance_audit:
+    name: Web Performance Audit
+    runs-on: ubuntu-latest
+    needs: deploy_web
+    if: success()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Run WebPageTest
+      uses: matt-ball/WebPageTest@v3
+      with:
+        apiKey: ${{ secrets.WEBPAGETEST_API_KEY }}
+        urls: |
+          https://${{ needs.deploy_web.outputs.deployment_url }}
+        options: '{"runs": 3, "location": "Dulles:Chrome", "connectivity": "3G"}'
+        
+    - name: Audit Core Web Vitals
+      run: |
+        npx @lhci/cli autorun
+      env:
+        LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+        
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: web-performance-audit
+        path: |
+          .lighthouseci/
+          webpagetest-results/
+
+  post_deployment_tests:
+    name: Web E2E Tests
+    runs-on: ubuntu-latest
+    needs: deploy_web
+    if: success()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        
+    - name: Install Playwright
+      run: |
+        npm install -g @playwright/test
+        npx playwright install
+        
+    - name: Run E2E tests
+      run: |
+        npx playwright test --config=playwright.config.js
+      env:
+        BASE_URL: ${{ needs.deploy_web.outputs.deployment_url }}
+        
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: web-e2e-results
+        path: |
+          test-results/
+          playwright-report/
+          
+    - name: Notify deployment status
+      uses: 8398a7/action-slack@v3
+      if: always()
+      with:
+        status: ${{ job.status }}
+        channel: '#web-deployments'
+        fields: repo,message,commit,author,action,eventName,ref,workflow
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}

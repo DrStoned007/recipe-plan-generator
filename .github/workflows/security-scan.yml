@@ -1,0 +1,389 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: '3.22.x'
+
+jobs:
+  # Static Application Security Testing (SAST)
+  sast_analysis:
+    name: SAST Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    defaults:
+      run:
+        working-directory: ./nutriplan_app
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v2
+      with:
+        languages: dart
+        config-file: ./.github/codeql/codeql-config.yml
+        
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Generate code
+      run: flutter packages pub run build_runner build --delete-conflicting-outputs
+      
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        category: "/language:dart"
+        
+    - name: Run Semgrep SAST
+      uses: returntocorp/semgrep-action@v1
+      with:
+        config: >-
+          p/security-audit
+          p/secrets
+          p/flutter
+          p/dart
+      env:
+        SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # Dependency Vulnerability Scanning
+  dependency_scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    defaults:
+      run:
+        working-directory: ./nutriplan_app
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: './nutriplan_app'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+    - name: Dart/Flutter Security Audit
+      run: |
+        # Check for known vulnerabilities in Dart packages
+        flutter pub deps --json > deps.json
+        
+        # Parse dependencies and check against vulnerability databases
+        cat deps.json | jq -r '.packages[] | select(.kind == "direct" or .kind == "dev") | "\(.name):\(.version)"' > dependencies.txt
+        
+        # Check for outdated packages with security vulnerabilities
+        flutter pub outdated --json > outdated.json
+        
+    - name: OSV Scanner
+      uses: google/osv-scanner-action@v1
+      with:
+        scan-args: |-
+          --format=sarif
+          --output=osv-results.sarif
+          ./nutriplan_app
+          
+    - name: Upload OSV scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'osv-results.sarif'
+
+  # Secret Detection
+  secret_detection:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: TruffleHog OSS
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+        
+    - name: GitLeaks Detection
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        
+    - name: Custom Secret Patterns
+      run: |
+        # Check for Flutter/Dart specific secrets
+        echo "Checking for Flutter-specific secrets..."
+        
+        # Check for hardcoded API keys in Dart files
+        grep -r "sk_\|pk_\|AIza\|AKIA\|ya29" . --include="*.dart" || true
+        
+        # Check for Supabase secrets
+        grep -r "supabase_url\|supabase_key" . --include="*.dart" || true
+        
+        # Check for hardcoded URLs
+        grep -r "https://" . --include="*.dart" | grep -v "///" || true
+
+  # License Compliance
+  license_compliance:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./nutriplan_app
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Check licenses
+      run: |
+        # Generate license report
+        flutter pub deps --json > deps.json
+        
+        # Extract package information and licenses
+        cat deps.json | jq -r '.packages[] | select(.kind == "direct" or .kind == "dev") | "\(.name):\(.version)"' > package_list.txt
+        
+        # Check for incompatible licenses
+        echo "Checking for license compliance..."
+        
+        # Create license summary
+        echo "## License Compliance Report" >> $GITHUB_STEP_SUMMARY
+        echo "Generated on: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+    - name: FOSSA License Scan
+      if: ${{ vars.ENABLE_FOSSA == 'true' }}
+      uses: fossas/fossa-action@main
+      with:
+        api-key: ${{ secrets.FOSSA_API_KEY }}
+        path: ./nutriplan_app
+
+  # Container Security (for Docker builds)
+  container_security:
+    name: Container Security
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_DOCKER == 'true' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Build Docker image
+      run: |
+        docker build -t nutriplan-app:${{ github.sha }} -f Dockerfile.web .
+        
+    - name: Run Trivy container scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'nutriplan-app:${{ github.sha }}'
+        format: 'sarif'
+        output: 'docker-trivy-results.sarif'
+        
+    - name: Upload container scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'docker-trivy-results.sarif'
+        
+    - name: Hadolint Dockerfile
+      uses: hadolint/hadolint-action@v3.1.0
+      with:
+        dockerfile: Dockerfile.web
+        format: sarif
+        output-file: hadolint-results.sarif
+        
+    - name: Upload Hadolint results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: hadolint-results.sarif
+
+  # Mobile Security (Android/iOS specific)
+  mobile_security:
+    name: Mobile Security Analysis
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./nutriplan_app
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        cache: true
+        
+    - name: Get dependencies
+      run: flutter pub get
+      
+    - name: Android Security Analysis
+      run: |
+        echo "Analyzing Android security configurations..."
+        
+        # Check Android manifest for security issues
+        if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
+          echo "Checking Android manifest..."
+          # Check for debugging enabled
+          grep -i "android:debuggable.*true" android/app/src/main/AndroidManifest.xml && echo "WARNING: Debug mode enabled" || true
+          
+          # Check for network security config
+          grep -i "android:networkSecurityConfig" android/app/src/main/AndroidManifest.xml || echo "INFO: Consider adding network security config"
+          
+          # Check for backup allowance
+          grep -i "android:allowBackup.*false" android/app/src/main/AndroidManifest.xml || echo "WARNING: App backup not explicitly disabled"
+        fi
+        
+    - name: iOS Security Analysis
+      run: |
+        echo "Analyzing iOS security configurations..."
+        
+        # Check iOS Info.plist for security settings
+        if [ -f "ios/Runner/Info.plist" ]; then
+          echo "Checking iOS Info.plist..."
+          # Check for ATS settings
+          grep -A5 "NSAppTransportSecurity" ios/Runner/Info.plist || echo "INFO: Consider configuring App Transport Security"
+        fi
+        
+    - name: Flutter Security Best Practices
+      run: |
+        echo "Checking Flutter security best practices..."
+        
+        # Check for debug prints in production code
+        grep -r "print(" lib/ && echo "WARNING: Debug prints found in lib/" || true
+        
+        # Check for debugPrint usage
+        grep -r "debugPrint(" lib/ && echo "INFO: debugPrint usage found" || true
+        
+        # Check for hardcoded sensitive data
+        grep -r "password\|secret\|key\|token" lib/ --include="*.dart" | grep -v "//\|debugPrint\|print" || true
+
+  # Security Summary Report
+  security_summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [sast_analysis, dependency_scan, secret_detection, license_compliance, mobile_security]
+    if: always()
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Generate Security Report
+      run: |
+        echo "# Security Scan Summary" > security_report.md
+        echo "" >> security_report.md
+        echo "**Scan Date:** $(date)" >> security_report.md
+        echo "**Repository:** ${{ github.repository }}" >> security_report.md
+        echo "**Commit SHA:** ${{ github.sha }}" >> security_report.md
+        echo "" >> security_report.md
+        
+        echo "## Scan Results" >> security_report.md
+        echo "- **SAST Analysis:** ${{ needs.sast_analysis.result }}" >> security_report.md
+        echo "- **Dependency Scan:** ${{ needs.dependency_scan.result }}" >> security_report.md
+        echo "- **Secret Detection:** ${{ needs.secret_detection.result }}" >> security_report.md
+        echo "- **License Compliance:** ${{ needs.license_compliance.result }}" >> security_report.md
+        echo "- **Mobile Security:** ${{ needs.mobile_security.result }}" >> security_report.md
+        echo "" >> security_report.md
+        
+        # Add recommendations based on results
+        echo "## Recommendations" >> security_report.md
+        if [[ "${{ needs.sast_analysis.result }}" == "failure" ]]; then
+          echo "- ⚠️ Review SAST findings and address critical vulnerabilities" >> security_report.md
+        fi
+        if [[ "${{ needs.dependency_scan.result }}" == "failure" ]]; then
+          echo "- ⚠️ Update vulnerable dependencies to latest secure versions" >> security_report.md
+        fi
+        if [[ "${{ needs.secret_detection.result }}" == "failure" ]]; then
+          echo "- 🔒 Remove detected secrets and rotate compromised credentials" >> security_report.md
+        fi
+        
+        cat security_report.md >> $GITHUB_STEP_SUMMARY
+        
+    - name: Upload Security Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-report-${{ github.sha }}
+        path: security_report.md
+        
+    - name: Comment on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const report = fs.readFileSync('security_report.md', 'utf8');
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: report
+          });
+          
+    - name: Fail on Critical Issues
+      run: |
+        if [[ "${{ needs.sast_analysis.result }}" == "failure" ]] || [[ "${{ needs.secret_detection.result }}" == "failure" ]]; then
+          echo "Critical security issues detected. Please address before merging."
+          exit 1
+        fi

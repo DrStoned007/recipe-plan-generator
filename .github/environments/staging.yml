@@ -1,0 +1,81 @@
+# Staging Environment Configuration
+# This file defines environment-specific variables for the staging environment
+
+name: staging
+url: https://staging.nutriplan.app
+
+# Environment Variables
+variables:
+  ENVIRONMENT: staging
+  API_BASE_URL: https://staging-api.nutriplan.app
+  LOG_LEVEL: debug
+  ENABLE_DEBUG_MODE: true
+  ENABLE_ANALYTICS: false
+  ENABLE_CRASH_REPORTING: true
+  ENABLE_PERFORMANCE_MONITORING: true
+  
+  # Feature Flags for Staging
+  ENABLE_BETA_FEATURES: true
+  ENABLE_EXPERIMENTAL_UI: true
+  ENABLE_OFFLINE_MODE: true
+  
+  # Deployment Configuration
+  USE_VERCEL: true
+  USE_NETLIFY: false
+  USE_CLOUDFLARE: false
+  
+  # Monitoring
+  ENABLE_EXTERNAL_METRICS: false
+  ENABLE_FOSSA: false
+  ENABLE_DOCKER: false
+
+# Required Secrets (must be set in GitHub repository settings)
+required_secrets:
+  # Supabase
+  - SUPABASE_URL
+  - SUPABASE_ANON_KEY
+  
+  # Authentication
+  - GOOGLE_SIGN_IN_WEB_CLIENT_ID
+  - GOOGLE_SIGN_IN_ANDROID_CLIENT_ID
+  - GOOGLE_SIGN_IN_IOS_CLIENT_ID
+  
+  # Deployment
+  - VERCEL_TOKEN
+  - VERCEL_ORG_ID
+  - VERCEL_PROJECT_ID
+  
+  # Monitoring
+  - SENTRY_DSN
+  - SLACK_WEBHOOK
+  
+# Protection Rules
+protection_rules:
+  required_reviewers: 1
+  required_status_checks:
+    - "Code Quality Analysis"
+    - "Test Suite"
+    - "Security Analysis"
+  restrict_pushes: true
+  allow_force_pushes: false
+  allow_deletions: false
+
+# Deployment Strategy
+deployment:
+  strategy: "blue-green"
+  auto_deploy: true
+  rollback_on_failure: true
+  max_deployment_time: "15m"
+  
+# Health Checks
+health_checks:
+  enabled: true
+  endpoints:
+    - path: "/"
+      expected_status: 200
+      timeout: 30s
+    - path: "/health"
+      expected_status: 200
+      timeout: 10s
+  frequency: "5m"
+  failure_threshold: 3

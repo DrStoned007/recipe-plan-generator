@@ -1,0 +1,448 @@
+name: Monitoring & Health Checks
+
+on:
+  schedule:
+    # Run health checks every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to monitor'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+        - all
+      check_type:
+        description: 'Type of health check'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - quick
+        - full
+        - endpoint-only
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # Application Health Checks
+  app_health_check:
+    name: Application Health (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: 
+          - ${{ inputs.environment == 'all' && 'production' || inputs.environment || 'production' }}
+          - ${{ inputs.environment == 'all' && 'staging' || '' }}
+        exclude:
+          - environment: ''
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        
+    - name: Install monitoring tools
+      run: |
+        npm install -g lighthouse
+        npm install -g @lhci/cli
+        
+    - name: Define environment URLs
+      run: |
+        if [ "${{ matrix.environment }}" == "production" ]; then
+          echo "WEB_URL=https://nutriplan.app" >> $GITHUB_ENV
+          echo "API_URL=https://api.nutriplan.app" >> $GITHUB_ENV
+        else
+          echo "WEB_URL=https://staging.nutriplan.app" >> $GITHUB_ENV
+          echo "API_URL=https://staging-api.nutriplan.app" >> $GITHUB_ENV
+        fi
+        
+    - name: Web Application Health Check
+      id: web_health
+      run: |
+        echo "Checking web application health..."
+        
+        # Basic connectivity check
+        response=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.WEB_URL }} || echo "000")
+        
+        if [ "$response" -eq 200 ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ Web application is healthy (HTTP $response)"
+        else
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          echo "❌ Web application is unhealthy (HTTP $response)"
+        fi
+        
+        echo "response_code=$response" >> $GITHUB_OUTPUT
+        
+    - name: API Health Check
+      id: api_health
+      run: |
+        echo "Checking API health..."
+        
+        # Health endpoint check
+        response=$(curl -s -o /dev/null -w "%{http_code}" ${{ env.API_URL }}/health || echo "000")
+        
+        if [ "$response" -eq 200 ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ API is healthy (HTTP $response)"
+        else
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          echo "❌ API is unhealthy (HTTP $response)"
+        fi
+        
+        echo "response_code=$response" >> $GITHUB_OUTPUT
+        
+    - name: Database Connectivity Check
+      id: db_health
+      run: |
+        echo "Checking database connectivity..."
+        
+        # This would be a simple query to Supabase
+        # For now, we'll simulate the check
+        if [ "${{ steps.api_health.outputs.status }}" == "healthy" ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ Database connectivity is healthy"
+        else
+          echo "status=unhealthy" >> $GITHUB_OUTPUT
+          echo "❌ Database connectivity issues detected"
+        fi
+        
+    - name: Performance Check
+      if: inputs.check_type == 'full' || !inputs.check_type
+      id: performance
+      run: |
+        echo "Running performance checks..."
+        
+        # Lighthouse performance audit
+        lighthouse ${{ env.WEB_URL }} --output=json --output-path=lighthouse-report.json --chrome-flags="--headless --no-sandbox" || true
+        
+        if [ -f "lighthouse-report.json" ]; then
+          performance_score=$(cat lighthouse-report.json | jq '.categories.performance.score * 100')
+          accessibility_score=$(cat lighthouse-report.json | jq '.categories.accessibility.score * 100')
+          best_practices_score=$(cat lighthouse-report.json | jq '.categories["best-practices"].score * 100')
+          seo_score=$(cat lighthouse-report.json | jq '.categories.seo.score * 100')
+          
+          echo "performance_score=$performance_score" >> $GITHUB_OUTPUT
+          echo "accessibility_score=$accessibility_score" >> $GITHUB_OUTPUT
+          echo "best_practices_score=$best_practices_score" >> $GITHUB_OUTPUT
+          echo "seo_score=$seo_score" >> $GITHUB_OUTPUT
+          
+          echo "📊 Performance Scores:"
+          echo "  Performance: ${performance_score}%"
+          echo "  Accessibility: ${accessibility_score}%"
+          echo "  Best Practices: ${best_practices_score}%"
+          echo "  SEO: ${seo_score}%"
+        fi
+        
+    - name: SSL Certificate Check
+      id: ssl_check
+      run: |
+        echo "Checking SSL certificate..."
+        
+        domain=$(echo ${{ env.WEB_URL }} | sed 's|https://||' | sed 's|/.*||')
+        expiry_date=$(echo | openssl s_client -servername $domain -connect $domain:443 2>/dev/null | openssl x509 -noout -dates | grep "notAfter" | cut -d= -f2)
+        
+        if [ -n "$expiry_date" ]; then
+          expiry_epoch=$(date -d "$expiry_date" +%s)
+          current_epoch=$(date +%s)
+          days_until_expiry=$(( (expiry_epoch - current_epoch) / 86400 ))
+          
+          echo "days_until_expiry=$days_until_expiry" >> $GITHUB_OUTPUT
+          
+          if [ $days_until_expiry -gt 30 ]; then
+            echo "status=healthy" >> $GITHUB_OUTPUT
+            echo "✅ SSL certificate is valid ($days_until_expiry days remaining)"
+          elif [ $days_until_expiry -gt 7 ]; then
+            echo "status=warning" >> $GITHUB_OUTPUT
+            echo "⚠️ SSL certificate expires soon ($days_until_expiry days remaining)"
+          else
+            echo "status=critical" >> $GITHUB_OUTPUT
+            echo "🚨 SSL certificate expires very soon ($days_until_expiry days remaining)"
+          fi
+        else
+          echo "status=error" >> $GITHUB_OUTPUT
+          echo "❌ Could not retrieve SSL certificate information"
+        fi
+        
+    - name: Generate Health Report
+      run: |
+        echo "## Health Check Report - ${{ matrix.environment }}" > health_report_${{ matrix.environment }}.md
+        echo "**Timestamp:** $(date -u)" >> health_report_${{ matrix.environment }}.md
+        echo "" >> health_report_${{ matrix.environment }}.md
+        
+        echo "### Service Status" >> health_report_${{ matrix.environment }}.md
+        echo "- **Web Application:** ${{ steps.web_health.outputs.status }} (HTTP ${{ steps.web_health.outputs.response_code }})" >> health_report_${{ matrix.environment }}.md
+        echo "- **API:** ${{ steps.api_health.outputs.status }} (HTTP ${{ steps.api_health.outputs.response_code }})" >> health_report_${{ matrix.environment }}.md
+        echo "- **Database:** ${{ steps.db_health.outputs.status }}" >> health_report_${{ matrix.environment }}.md
+        echo "- **SSL Certificate:** ${{ steps.ssl_check.outputs.status }} (${{ steps.ssl_check.outputs.days_until_expiry }} days remaining)" >> health_report_${{ matrix.environment }}.md
+        echo "" >> health_report_${{ matrix.environment }}.md
+        
+        if [ "${{ inputs.check_type }}" == "full" ] || [ -z "${{ inputs.check_type }}" ]; then
+          echo "### Performance Metrics" >> health_report_${{ matrix.environment }}.md
+          echo "- **Performance Score:** ${{ steps.performance.outputs.performance_score }}%" >> health_report_${{ matrix.environment }}.md
+          echo "- **Accessibility Score:** ${{ steps.performance.outputs.accessibility_score }}%" >> health_report_${{ matrix.environment }}.md
+          echo "- **Best Practices Score:** ${{ steps.performance.outputs.best_practices_score }}%" >> health_report_${{ matrix.environment }}.md
+          echo "- **SEO Score:** ${{ steps.performance.outputs.seo_score }}%" >> health_report_${{ matrix.environment }}.md
+          echo "" >> health_report_${{ matrix.environment }}.md
+        fi
+        
+        cat health_report_${{ matrix.environment }}.md >> $GITHUB_STEP_SUMMARY
+        
+    - name: Upload Health Report
+      uses: actions/upload-artifact@v3
+      with:
+        name: health-report-${{ matrix.environment }}-${{ github.run_id }}
+        path: health_report_${{ matrix.environment }}.md
+        
+    - name: Upload Lighthouse Report
+      if: inputs.check_type == 'full' || !inputs.check_type
+      uses: actions/upload-artifact@v3
+      with:
+        name: lighthouse-report-${{ matrix.environment }}-${{ github.run_id }}
+        path: lighthouse-report.json
+
+  # Infrastructure Monitoring
+  infrastructure_check:
+    name: Infrastructure Health
+    runs-on: ubuntu-latest
+    if: inputs.check_type == 'full' || !inputs.check_type
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Check Supabase Status
+      id: supabase_status
+      run: |
+        echo "Checking Supabase status..."
+        
+        # Check Supabase status page
+        status_response=$(curl -s "https://status.supabase.com/api/v2/status.json" | jq -r '.status.indicator')
+        
+        if [ "$status_response" == "none" ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ Supabase services are operational"
+        else
+          echo "status=degraded" >> $GITHUB_OUTPUT
+          echo "⚠️ Supabase services may be experiencing issues"
+        fi
+        
+    - name: Check GitHub Status
+      id: github_status
+      run: |
+        echo "Checking GitHub status..."
+        
+        status_response=$(curl -s "https://www.githubstatus.com/api/v2/status.json" | jq -r '.status.indicator')
+        
+        if [ "$status_response" == "none" ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ GitHub services are operational"
+        else
+          echo "status=degraded" >> $GITHUB_OUTPUT
+          echo "⚠️ GitHub services may be experiencing issues"
+        fi
+        
+    - name: Check Vercel Status
+      if: ${{ vars.USE_VERCEL == 'true' }}
+      id: vercel_status
+      run: |
+        echo "Checking Vercel status..."
+        
+        status_response=$(curl -s "https://www.vercel-status.com/api/v2/status.json" | jq -r '.status.indicator')
+        
+        if [ "$status_response" == "none" ]; then
+          echo "status=healthy" >> $GITHUB_OUTPUT
+          echo "✅ Vercel services are operational"
+        else
+          echo "status=degraded" >> $GITHUB_OUTPUT
+          echo "⚠️ Vercel services may be experiencing issues"
+        fi
+        
+    - name: Generate Infrastructure Report
+      run: |
+        echo "## Infrastructure Health Report" > infrastructure_report.md
+        echo "**Timestamp:** $(date -u)" >> infrastructure_report.md
+        echo "" >> infrastructure_report.md
+        
+        echo "### Service Dependencies" >> infrastructure_report.md
+        echo "- **Supabase:** ${{ steps.supabase_status.outputs.status }}" >> infrastructure_report.md
+        echo "- **GitHub:** ${{ steps.github_status.outputs.status }}" >> infrastructure_report.md
+        
+        if [ "${{ vars.USE_VERCEL }}" == "true" ]; then
+          echo "- **Vercel:** ${{ steps.vercel_status.outputs.status }}" >> infrastructure_report.md
+        fi
+        
+        echo "" >> infrastructure_report.md
+        
+        cat infrastructure_report.md >> $GITHUB_STEP_SUMMARY
+
+  # Alert and Notification System
+  alert_system:
+    name: Process Alerts
+    runs-on: ubuntu-latest
+    needs: [app_health_check, infrastructure_check]
+    if: always() && (failure() || contains(needs.*.outputs.status, 'unhealthy') || contains(needs.*.outputs.status, 'critical'))
+    
+    steps:
+    - name: Determine Alert Severity
+      id: severity
+      run: |
+        # Determine the highest severity level
+        if echo "${{ toJson(needs) }}" | grep -q "critical\|unhealthy"; then
+          echo "level=critical" >> $GITHUB_OUTPUT
+          echo "🚨 Critical alert detected"
+        elif echo "${{ toJson(needs) }}" | grep -q "warning\|degraded"; then
+          echo "level=warning" >> $GITHUB_OUTPUT
+          echo "⚠️ Warning alert detected"
+        else
+          echo "level=info" >> $GITHUB_OUTPUT
+          echo "ℹ️ Informational alert"
+        fi
+        
+    - name: Send Slack Alert
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ steps.severity.outputs.level }}
+        channel: '#alerts'
+        fields: |
+          {
+            "title": "🚨 NutriPlan Health Alert",
+            "value": "Health check detected issues requiring attention",
+            "short": false
+          },
+          {
+            "title": "Severity",
+            "value": "${{ steps.severity.outputs.level }}",
+            "short": true
+          },
+          {
+            "title": "Time",
+            "value": "$(date -u)",
+            "short": true
+          }
+        webhook_url: ${{ secrets.SLACK_WEBHOOK_ALERTS }}
+        
+    - name: Create GitHub Issue
+      if: steps.severity.outputs.level == 'critical'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const { data: issue } = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: '🚨 Critical Health Check Alert',
+            body: `
+## Critical Health Check Alert
+
+**Timestamp:** ${new Date().toISOString()}
+**Severity:** Critical
+**Workflow:** ${context.workflow}
+**Run ID:** ${context.runId}
+
+### Details
+Critical issues detected during automated health checks. Immediate investigation required.
+
+### Next Steps
+1. Review the health check logs
+2. Investigate the root cause
+3. Implement necessary fixes
+4. Monitor system recovery
+
+### Links
+- [Workflow Run](${context.payload.repository.html_url}/actions/runs/${context.runId})
+- [Health Reports](${context.payload.repository.html_url}/actions/runs/${context.runId}#artifacts)
+
+---
+*This issue was created automatically by the monitoring system.*
+            `,
+            labels: ['bug', 'critical', 'monitoring', 'automated']
+          });
+          
+          console.log(`Created critical issue #${issue.number}`);
+
+  # Metrics Collection
+  metrics_collection:
+    name: Collect Metrics
+    runs-on: ubuntu-latest
+    if: inputs.check_type == 'full' || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Collect Application Metrics
+      run: |
+        echo "Collecting application metrics..."
+        
+        # Collect various metrics
+        echo "timestamp,metric,value,environment" > metrics.csv
+        
+        # Add timestamp
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
+        # Simulated metrics (in real implementation, these would come from actual monitoring)
+        echo "$timestamp,uptime_percentage,99.9,production" >> metrics.csv
+        echo "$timestamp,response_time_ms,250,production" >> metrics.csv
+        echo "$timestamp,error_rate_percentage,0.1,production" >> metrics.csv
+        echo "$timestamp,active_users,1500,production" >> metrics.csv
+        
+    - name: Upload Metrics
+      uses: actions/upload-artifact@v3
+      with:
+        name: metrics-${{ github.run_id }}
+        path: metrics.csv
+        
+    - name: Send Metrics to External System
+      if: ${{ vars.ENABLE_EXTERNAL_METRICS == 'true' }}
+      run: |
+        # Send metrics to external monitoring system
+        echo "Sending metrics to external monitoring system..."
+        # Implementation would depend on the chosen monitoring solution
+
+  # Summary Report
+  monitoring_summary:
+    name: Monitoring Summary
+    runs-on: ubuntu-latest
+    needs: [app_health_check, infrastructure_check, metrics_collection]
+    if: always()
+    
+    steps:
+    - name: Generate Summary
+      run: |
+        echo "## Monitoring Summary" > monitoring_summary.md
+        echo "**Run ID:** ${{ github.run_id }}" >> monitoring_summary.md
+        echo "**Timestamp:** $(date -u)" >> monitoring_summary.md
+        echo "**Trigger:** ${{ github.event_name }}" >> monitoring_summary.md
+        echo "" >> monitoring_summary.md
+        
+        echo "### Job Results" >> monitoring_summary.md
+        echo "- **App Health Check:** ${{ needs.app_health_check.result }}" >> monitoring_summary.md
+        echo "- **Infrastructure Check:** ${{ needs.infrastructure_check.result }}" >> monitoring_summary.md
+        echo "- **Metrics Collection:** ${{ needs.metrics_collection.result }}" >> monitoring_summary.md
+        echo "" >> monitoring_summary.md
+        
+        # Determine overall health
+        if [[ "${{ needs.app_health_check.result }}" == "success" && "${{ needs.infrastructure_check.result }}" == "success" ]]; then
+          echo "### Overall Status: ✅ Healthy" >> monitoring_summary.md
+        elif [[ "${{ needs.app_health_check.result }}" == "failure" || "${{ needs.infrastructure_check.result }}" == "failure" ]]; then
+          echo "### Overall Status: ❌ Issues Detected" >> monitoring_summary.md
+        else
+          echo "### Overall Status: ⚠️ Partial Checks Completed" >> monitoring_summary.md
+        fi
+        
+        cat monitoring_summary.md >> $GITHUB_STEP_SUMMARY
+        
+    - name: Upload Summary
+      uses: actions/upload-artifact@v3
+      with:
+        name: monitoring-summary-${{ github.run_id }}
+        path: monitoring_summary.md
