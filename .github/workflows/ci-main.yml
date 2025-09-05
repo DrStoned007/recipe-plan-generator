@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, development ]
+    branches: [ master, development, release ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
     inputs:
       environment:
@@ -104,7 +104,7 @@ jobs:
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        base: main
+        base: master
         head: HEAD
         extra_args: --debug --only-verified
 
@@ -315,7 +315,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build_artifacts, performance_analysis]
     if: |
-      github.ref == 'refs/heads/develop' || 
+      github.ref == 'refs/heads/development' || 
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'staging')
     environment:
       name: staging
@@ -357,7 +357,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build_artifacts, performance_analysis]
     if: |
-      github.ref == 'refs/heads/main' || 
+      github.ref == 'refs/heads/master' || 
       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
     environment:
       name: production
