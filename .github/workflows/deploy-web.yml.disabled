@@ -26,7 +26,7 @@ on:
       - 'v*-web'
 
 env:
-  FLUTTER_VERSION: '3.22.x'
+  FLUTTER_VERSION: '3.35.x'
   NODE_VERSION: '20'
 
 jobs:
@@ -68,7 +68,6 @@ jobs:
       run: |
         flutter build web \
           --release \
-          --web-renderer canvaskit \
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
           --dart-define=GOOGLE_SIGN_IN_CLIENT_ID=${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID }} \
@@ -123,11 +122,9 @@ jobs:
         
     - name: Deploy to Netlify
       if: (vars.USE_NETLIFY == 'true' && secrets.NETLIFY_AUTH_TOKEN) || (!secrets.VERCEL_TOKEN && secrets.NETLIFY_AUTH_TOKEN)
-      uses: netlify/actions/deploy@master
+      uses: South-Paw/action-netlify-cli@v2
       with:
-        publish-dir: './nutriplan_app/build/web'
-        production-branch: master
-        production-deploy: ${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release' }}
+        args: 'deploy --json --dir "./nutriplan_app/build/web" --message "Deploy from workflow" ${{ (github.ref == "refs/heads/master" || github.ref == "refs/heads/release") && "--prod" || "" }}'
       env:
         NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
@@ -173,7 +170,7 @@ jobs:
         fi
         
     - name: Upload web build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: web-build-${{ github.sha }}
         path: nutriplan_app/build/web/

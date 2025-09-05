@@ -22,7 +22,7 @@ on:
         type: boolean
 
 env:
-  FLUTTER_VERSION: '3.22.x'
+  FLUTTER_VERSION: '3.35.x'
   JAVA_VERSION: '17'
   NODE_VERSION: '20'
 
@@ -117,7 +117,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        flutter-version: ['3.19.x', '3.22.x']
+        flutter-version: ['3.35.x']
     defaults:
       run:
         working-directory: ./nutriplan_app
