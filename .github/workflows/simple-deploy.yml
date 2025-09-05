@@ -108,7 +108,6 @@ jobs:
         flutter config --enable-web
         flutter build web \
           --release \
-          --web-renderer canvaskit \
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} \
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
           ${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID && format('--dart-define=GOOGLE_SIGN_IN_CLIENT_ID={0}', secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID) || '' }}
