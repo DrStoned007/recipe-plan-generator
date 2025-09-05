@@ -125,3 +125,7 @@ Get-ChildItem -Name "*.disabled" | ForEach-Object {
 ✅ **Netlify deployment works** (if secrets provided)  
 ✅ **Build artifacts uploaded** for manual deployment  
 ✅ **Clear status reporting** in workflow summary  
+
+---
+
+*Test run initiated: 2025-09-05 - Testing simple-deploy.yml workflow*  
