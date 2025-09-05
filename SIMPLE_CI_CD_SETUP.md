@@ -128,4 +128,4 @@ Get-ChildItem -Name "*.disabled" | ForEach-Object {
 
 ---
 
-*Test run initiated: 2025-09-05 - Testing simple-deploy.yml workflow*  
+*Test run initiated: 2025-09-05 - Testing test-simple.yml real deployment workflow*  
