@@ -128,5 +128,6 @@ Get-ChildItem -Name "*.disabled" | ForEach-Object {
 
 ---
 
-*Enhanced workflow test: 2025-09-05 - Testing test-simple.yml real deployment capabilities*
-*Previous test completed - Now testing multi-job workflow with validation, deployment, and notification*  
+*Syntax-fixed workflow test: 2025-09-05 - Testing corrected test-simple.yml after fixing GitHub Actions expression*
+*Previous test completed - Now testing workflow with proper secret validation syntax*
+*Fixed conditional: secrets.VERCEL_TOKEN && !secrets.NETLIFY_AUTH_TOKEN*  
