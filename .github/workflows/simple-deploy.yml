@@ -183,12 +183,24 @@ jobs:
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} \
           ${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID && format('--dart-define=GOOGLE_SIGN_IN_CLIENT_ID={0}', secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID) || '' }}
           
-    - name: Deploy to Netlify
+    - name: Deploy to Netlify (Production)
       uses: South-Paw/action-netlify-cli@v2
       continue-on-error: true
-      id: netlify
+      id: netlify-prod
+      if: ${{ inputs.environment == 'production' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/release' }}
       with:
-        args: 'deploy --json --dir "./nutriplan_app/build/web" --message "Deploy from ${{ github.ref_name }} - ${{ github.sha }}" ${{ (inputs.environment == "production" || github.ref == "refs/heads/master" || github.ref == "refs/heads/release") && "--prod" || "" }}'
+        args: 'deploy --json --dir "./nutriplan_app/build/web" --message "Deploy from ${{ github.ref_name }} - ${{ github.sha }}" --prod'
+      env:
+        NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        
+    - name: Deploy to Netlify (Staging)
+      uses: South-Paw/action-netlify-cli@v2
+      continue-on-error: true
+      id: netlify-staging
+      if: ${{ !((inputs.environment == 'production') || (github.ref == 'refs/heads/master') || (github.ref == 'refs/heads/release')) }}
+      with:
+        args: 'deploy --json --dir "./nutriplan_app/build/web" --message "Deploy from ${{ github.ref_name }} - ${{ github.sha }}"'
       env:
         NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
