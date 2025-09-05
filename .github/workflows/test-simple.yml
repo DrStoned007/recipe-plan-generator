@@ -154,7 +154,7 @@ jobs:
           ${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID && format('--dart-define=GOOGLE_SIGN_IN_CLIENT_ID={0}', secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID) || '' }}
           
     - name: Deploy to Netlify
-      if: secrets.NETLIFY_AUTH_TOKEN && secrets.NETLIFY_SITE_ID
+      if: ${{ secrets.NETLIFY_AUTH_TOKEN && secrets.NETLIFY_SITE_ID }}
       uses: netlify/actions/deploy@master
       with:
         publish-dir: './nutriplan_app/build/web'
@@ -165,7 +165,7 @@ jobs:
         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
         
     - name: Deploy to Vercel (Alternative)
-      if: ${{ secrets.VERCEL_TOKEN && !secrets.NETLIFY_AUTH_TOKEN }}
+      if: ${{ secrets.VERCEL_TOKEN }}
       uses: amondnet/vercel-action@v25
       with:
         vercel-token: ${{ secrets.VERCEL_TOKEN }}
