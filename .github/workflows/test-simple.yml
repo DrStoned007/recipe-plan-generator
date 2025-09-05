@@ -154,8 +154,8 @@ jobs:
           ${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID && format('--dart-define=GOOGLE_SIGN_IN_CLIENT_ID={0}', secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID) || '' }}
           
     - name: Deploy to Netlify
-      if: ${{ secrets.NETLIFY_AUTH_TOKEN }}
       uses: netlify/actions/deploy@master
+      continue-on-error: true
       with:
         publish-dir: './nutriplan_app/build/web'
         production-branch: development
