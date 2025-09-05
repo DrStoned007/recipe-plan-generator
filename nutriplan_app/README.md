@@ -2,7 +2,7 @@
 
 NutriPlan is a Flutter-based mobile and web application designed to help users with therapeutic dietary needs generate suitable recipes and plan their meals. Built with modern architecture using Flutter, Supabase, and Riverpod for optimal performance and scalability.
 
-<!-- CI/CD Test - Last updated: 2025-09-05 -->
+<!-- CI/CD Test - Last updated: 2025-09-05 - Pipeline Fixed! -->
 
 ## 📱 Features
 
