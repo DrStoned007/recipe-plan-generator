@@ -164,17 +164,6 @@ jobs:
         NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
         
-    - name: Deploy to Vercel (Alternative)
-      if: ${{ secrets.VERCEL_TOKEN }}
-      uses: amondnet/vercel-action@v25
-      with:
-        vercel-token: ${{ secrets.VERCEL_TOKEN }}
-        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-        working-directory: ./nutriplan_app/build/web
-        production: ${{ inputs.environment == 'production' || github.ref == 'refs/heads/master' }}
-      continue-on-error: true
-        
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v3
       with:
@@ -196,10 +185,8 @@ jobs:
           else
             echo "🧪 **Environment**: Staging" >> $GITHUB_STEP_SUMMARY
           fi
-        elif [ "${{ secrets.VERCEL_TOKEN }}" ]; then
-          echo "✅ Deployed to Vercel" >> $GITHUB_STEP_SUMMARY
         else
-          echo "⚠️ No deployment platform configured" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Netlify deployment skipped (missing secrets)" >> $GITHUB_STEP_SUMMARY
           echo "📦 Build artifacts uploaded for manual deployment" >> $GITHUB_STEP_SUMMARY
         fi
         
@@ -209,7 +196,6 @@ jobs:
         echo "- ✅ SUPABASE_ANON_KEY" >> $GITHUB_STEP_SUMMARY
         echo "- ${{ secrets.NETLIFY_AUTH_TOKEN && '✅' || '❌' }} NETLIFY_AUTH_TOKEN" >> $GITHUB_STEP_SUMMARY
         echo "- ${{ secrets.NETLIFY_SITE_ID && '✅' || '❌' }} NETLIFY_SITE_ID" >> $GITHUB_STEP_SUMMARY
-        echo "- ${{ secrets.VERCEL_TOKEN && '✅' || '❌' }} VERCEL_TOKEN" >> $GITHUB_STEP_SUMMARY
         echo "- ${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID && '✅' || '❌' }} GOOGLE_SIGN_IN_WEB_CLIENT_ID" >> $GITHUB_STEP_SUMMARY
 
   # Notification and summary
