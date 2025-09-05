@@ -128,6 +128,7 @@ Get-ChildItem -Name "*.disabled" | ForEach-Object {
 
 ---
 
-*Final syntax fix test: 2025-09-05 - Testing corrected test-simple.yml without NOT operators*
-*Removed problematic !secrets expressions that caused GitHub Actions parsing errors*
-*Both Netlify and Vercel deployments now use simple positive conditional checks*  
+*Netlify-only deployment test: 2025-09-05 - Testing simplified test-simple.yml with Netlify-only*
+*Removed all Vercel deployment code per requirement*
+*Fixed GitHub Actions expression syntax errors*
+*Workflow now uses only Netlify for deployment*  
