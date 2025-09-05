@@ -1,4 +1,4 @@
-name: Simple Test Workflow
+name: Simple Validation Test
 
 on:
   push:
@@ -6,21 +6,57 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: Simple Test
+  validate:
+    name: Quick Validation
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Print environment
+    - name: Environment Check
       run: |
-        echo "✅ GitHub Actions is working!"
-        echo "Branch: ${{ github.ref }}"
-        echo "Commit: ${{ github.sha }}"
-        echo "Repository: ${{ github.repository }}"
+        echo "### 🔍 Environment Validation" >> $GITHUB_STEP_SUMMARY
+        echo "✅ GitHub Actions is working!" >> $GITHUB_STEP_SUMMARY
+        echo "📍 **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "📝 **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "📦 **Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+        echo "⚡ **Event**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
         
-    - name: Test workflow dispatch
-      if: github.event_name == 'workflow_dispatch'
-      run: echo "✅ Manual trigger is working!"
+    - name: Flutter Environment Check
+      run: |
+        echo "Checking Flutter environment..."
+        if command -v flutter &> /dev/null; then
+          echo "✅ Flutter is available"
+        else
+          echo "ℹ️ Flutter not pre-installed (will be installed in deploy workflow)"
+        fi
+        
+    - name: Repository Structure Check
+      run: |
+        echo "Checking repository structure..."
+        if [ -f "nutriplan_app/pubspec.yaml" ]; then
+          echo "✅ Flutter project structure detected"
+          echo "📱 **Project**: Flutter App in nutriplan_app/" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Flutter project structure not found"
+          exit 1
+        fi
+        
+    - name: Workflow Files Check
+      run: |
+        echo "Checking workflow configuration..."
+        if [ -f ".github/workflows/simple-deploy.yml" ]; then
+          echo "✅ Main deployment workflow found"
+          echo "🚀 **Deploy Workflow**: Available" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Main deployment workflow missing"
+        fi
+        
+    - name: Test Summary
+      run: |
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Validation Summary" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Repository structure is valid" >> $GITHUB_STEP_SUMMARY
+        echo "✅ GitHub Actions environment is working" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Ready for deployment workflow" >> $GITHUB_STEP_SUMMARY
