@@ -128,7 +128,7 @@ Get-ChildItem -Name "*.disabled" | ForEach-Object {
 
 ---
 
-*Context7-researched workflow fix: 2025-09-05 - Applied best practices for GitHub Actions secrets*
-*Used explicit null checks: secrets.NETLIFY_AUTH_TOKEN != '' && secrets.NETLIFY_SITE_ID != ''*
-*Both test-simple.yml and simple-deploy.yml now follow consistent approach*
-*Researched best practices using Context7 GitHub Actions Toolkit documentation*  
+*Simplified workflow fix: 2025-09-05 - Applied simplest GitHub Actions secret conditional*
+*Used minimal approach: if: secrets.NETLIFY_AUTH_TOKEN (single secret check)*
+*Removed complex AND expressions that caused persistent parsing errors*
+*Both workflows now use the most compatible GitHub Actions syntax*  
