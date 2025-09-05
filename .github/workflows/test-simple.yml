@@ -165,7 +165,7 @@ jobs:
         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
         
     - name: Deploy to Vercel (Alternative)
-      if: ${{ !secrets.NETLIFY_AUTH_TOKEN && secrets.VERCEL_TOKEN }}
+      if: ${{ secrets.VERCEL_TOKEN && !secrets.NETLIFY_AUTH_TOKEN }}
       uses: amondnet/vercel-action@v25
       with:
         vercel-token: ${{ secrets.VERCEL_TOKEN }}
