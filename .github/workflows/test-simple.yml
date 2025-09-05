@@ -20,7 +20,7 @@ on:
         - production
 
 env:
-  FLUTTER_VERSION: '3.22.x'
+  FLUTTER_VERSION: '3.35.x'
 
 jobs:
   # Quick validation and testing

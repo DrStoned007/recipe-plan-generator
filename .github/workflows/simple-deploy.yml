@@ -17,7 +17,7 @@ on:
         - production
 
 env:
-  FLUTTER_VERSION: '3.22.x'
+  FLUTTER_VERSION: '3.35.x'
   NODE_VERSION: '20'
 
 jobs:
