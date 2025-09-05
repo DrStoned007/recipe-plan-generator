@@ -128,6 +128,6 @@ Get-ChildItem -Name "*.disabled" | ForEach-Object {
 
 ---
 
-*Syntax-fixed workflow test: 2025-09-05 - Testing corrected test-simple.yml after fixing GitHub Actions expression*
-*Previous test completed - Now testing workflow with proper secret validation syntax*
-*Fixed conditional: secrets.VERCEL_TOKEN && !secrets.NETLIFY_AUTH_TOKEN*  
+*Final syntax fix test: 2025-09-05 - Testing corrected test-simple.yml without NOT operators*
+*Removed problematic !secrets expressions that caused GitHub Actions parsing errors*
+*Both Netlify and Vercel deployments now use simple positive conditional checks*  
