@@ -153,16 +153,14 @@ jobs:
           ${{ secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID && format('--dart-define=GOOGLE_SIGN_IN_CLIENT_ID={0}', secrets.GOOGLE_SIGN_IN_WEB_CLIENT_ID) || '' }}
           
     - name: Deploy to Netlify
-      uses: jsmrcaga/action-netlify-deploy@v2.0.0
+      uses: South-Paw/action-netlify-cli@v2
       continue-on-error: true
+      id: netlify
       with:
+        args: 'deploy --json --dir "./nutriplan_app/build/web" --message "Deploy from ${{ github.ref_name }} - ${{ github.sha }}" ${{ inputs.environment == "production" || github.ref == "refs/heads/master" && "--prod" || "" }}'
+      env:
         NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
         NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-        NETLIFY_DEPLOY_MESSAGE: "Deploy from ${{ github.ref_name }} - ${{ github.sha }}"
-        NETLIFY_DEPLOY_TO_PROD: ${{ inputs.environment == 'production' || github.ref == 'refs/heads/master' }}
-        build_directory: './nutriplan_app/build/web'
-        install_command: "echo Skipping installing the dependencies"
-        build_command: "echo Skipping building the web files"
         
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
