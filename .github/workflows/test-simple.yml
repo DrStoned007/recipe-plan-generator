@@ -1,0 +1,26 @@
+name: Simple Test Workflow
+
+on:
+  push:
+    branches: [ development ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Simple Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Print environment
+      run: |
+        echo "✅ GitHub Actions is working!"
+        echo "Branch: ${{ github.ref }}"
+        echo "Commit: ${{ github.sha }}"
+        echo "Repository: ${{ github.repository }}"
+        
+    - name: Test workflow dispatch
+      if: github.event_name == 'workflow_dispatch'
+      run: echo "✅ Manual trigger is working!"
